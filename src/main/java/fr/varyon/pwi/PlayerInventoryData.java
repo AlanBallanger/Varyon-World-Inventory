@@ -38,22 +38,37 @@ public class PlayerInventoryData {
 
     public static PlayerInventoryData fromHolder(Holder<EntityStore> holder) {
         PlayerInventoryData data = new PlayerInventoryData();
-
-        InventoryComponent.Hotbar hotbar = holder.getComponent(InventoryComponent.Hotbar.getComponentType());
-        if (hotbar != null) {
-            data.activeHotbarSlot = hotbar.getActiveSlot();
+        try {
+            return fromHolderUnsafe(holder, data);
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable t) {
+            return data;
         }
+    }
 
-        InventoryComponent.Utility utility = holder.getComponent(InventoryComponent.Utility.getComponentType());
-        if (utility != null) {
-            data.activeUtilitySlot = utility.getActiveSlot();
-        }
+    private static PlayerInventoryData fromHolderUnsafe(Holder<EntityStore> holder, PlayerInventoryData data) {
+        try {
+            InventoryComponent.Hotbar hotbar = holder.getComponent(InventoryComponent.Hotbar.getComponentType());
+            if (hotbar != null) {
+                data.activeHotbarSlot = hotbar.getActiveSlot();
+            }
+        } catch (Exception ignored) {}
 
-        InventoryComponent.Tool tool = holder.getComponent(InventoryComponent.Tool.getComponentType());
-        if (tool != null) {
-            data.activeToolsSlot   = tool.getActiveSlot();
-            data.usingToolsItem    = tool.isUsingToolsItem();
-        }
+        try {
+            InventoryComponent.Utility utility = holder.getComponent(InventoryComponent.Utility.getComponentType());
+            if (utility != null) {
+                data.activeUtilitySlot = utility.getActiveSlot();
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            InventoryComponent.Tool tool = holder.getComponent(InventoryComponent.Tool.getComponentType());
+            if (tool != null) {
+                data.activeToolsSlot = tool.getActiveSlot();
+                data.usingToolsItem = tool.isUsingToolsItem();
+            }
+        } catch (Exception ignored) {}
 
         for (int sectionId : SECTION_IDS) {
             InventoryComponent section = (InventoryComponent) holder.getComponent(
@@ -61,6 +76,7 @@ public class PlayerInventoryData {
             if (section == null) continue;
 
             ItemContainer container = section.getInventory();
+            if (container == null) continue;
             short capacity = container.getCapacity();
             for (short i = 0; i < capacity; i++) {
                 ItemStack item = container.getItemStack(i);
@@ -73,8 +89,22 @@ public class PlayerInventoryData {
     }
 
     public void applyToInventory(Holder<EntityStore> holder) {
+        try {
+            applyToInventoryUnsafe(holder);
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void applyToInventoryUnsafe(Holder<EntityStore> holder) {
+        List<ItemData> list = items;
+        if (list == null) {
+            list = List.of();
+        }
         Map<Integer, Map<Integer, ItemStack>> bySection = new HashMap<>();
-        for (ItemData itemData : items) {
+        for (ItemData itemData : list) {
+            if (itemData == null) continue;
             ItemStack restored = itemData.toItemStack();
             if (restored == null || restored.isEmpty()) continue;
             bySection.computeIfAbsent(itemData.getSectionId(), k -> new HashMap<>())
@@ -87,51 +117,101 @@ public class PlayerInventoryData {
             if (section == null) continue;
 
             ItemContainer container = section.getInventory();
-            Map<Integer, ItemStack> sectionItems = bySection.getOrDefault(sectionId, Map.of());
+            if (container == null) continue;
             short capacity = container.getCapacity();
+            if (capacity <= 0) continue;
+
+            Map<Integer, ItemStack> sectionItems = bySection.getOrDefault(sectionId, Map.of());
             for (short i = 0; i < capacity; i++) {
                 try {
-                    // filter=false: bypass slot filters (armor/utility filters would block
-                    // ItemStack.EMPTY and cross-type items, silently aborting the operation)
                     container.setItemStackForSlot(i, sectionItems.getOrDefault((int) i, ItemStack.EMPTY), false);
                 } catch (Exception ignored) {}
             }
-            section.markDirty();
+            try {
+                section.markDirty();
+            } catch (Exception ignored) {}
         }
 
         InventoryComponent.Hotbar hotbar = holder.getComponent(InventoryComponent.Hotbar.getComponentType());
-        if (hotbar != null) {
+        if (hotbar != null && slotInRange(activeHotbarSlot, InventoryComponent.HOTBAR_SECTION_ID, holder)) {
             try { hotbar.setActiveSlot((byte) activeHotbarSlot); } catch (Exception ignored) {}
         }
 
         InventoryComponent.Utility utility = holder.getComponent(InventoryComponent.Utility.getComponentType());
-        if (utility != null) {
+        if (utility != null && slotInRange(activeUtilitySlot, InventoryComponent.UTILITY_SECTION_ID, holder)) {
             try { utility.setActiveSlot((byte) activeUtilitySlot); } catch (Exception ignored) {}
         }
 
         InventoryComponent.Tool tool = holder.getComponent(InventoryComponent.Tool.getComponentType());
         if (tool != null) {
             try {
-                tool.setActiveSlot((byte) activeToolsSlot);
+                if (slotInRange(activeToolsSlot, InventoryComponent.TOOLS_SECTION_ID, holder)) {
+                    tool.setActiveSlot((byte) activeToolsSlot);
+                }
                 tool.setUsingToolsItem(usingToolsItem);
             } catch (Exception ignored) {}
         }
     }
 
-    public static void clearInventory(Holder<EntityStore> holder) {
-        for (int sectionId : SECTION_IDS) {
-            InventoryComponent section = (InventoryComponent) holder.getComponent(
-                    InventoryComponent.getComponentTypeById(sectionId));
-            if (section == null) continue;
+    public static boolean inventoriesReadyForData(Holder<EntityStore> holder, PlayerInventoryData data) {
+        try {
+            if (data == null || data.getItems() == null || data.getItems().isEmpty()) {
+                return true;
+            }
+            Map<Integer, Integer> maxSlotBySection = new HashMap<>();
+            for (ItemData id : data.getItems()) {
+                if (id == null) continue;
+                maxSlotBySection.merge(id.getSectionId(), id.getSlot(), Math::max);
+            }
+            for (Integer sectionId : maxSlotBySection.keySet()) {
+                InventoryComponent section = (InventoryComponent) holder.getComponent(
+                        InventoryComponent.getComponentTypeById(sectionId));
+                if (section == null) return false;
+                ItemContainer container = section.getInventory();
+                if (container == null || container.getCapacity() <= 0) return false;
+            }
+            return true;
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 
-            ItemContainer container = section.getInventory();
-            short capacity = container.getCapacity();
-            for (short i = 0; i < capacity; i++) {
+    private static boolean slotInRange(int slot, int sectionId, Holder<EntityStore> holder) {
+        if (slot < 0) return false;
+        InventoryComponent section = (InventoryComponent) holder.getComponent(
+                InventoryComponent.getComponentTypeById(sectionId));
+        if (section == null) return false;
+        ItemContainer container = section.getInventory();
+        if (container == null) return false;
+        short cap = container.getCapacity();
+        return cap > 0 && slot < cap;
+    }
+
+    public static void clearInventory(Holder<EntityStore> holder) {
+        try {
+            for (int sectionId : SECTION_IDS) {
+                InventoryComponent section = (InventoryComponent) holder.getComponent(
+                        InventoryComponent.getComponentTypeById(sectionId));
+                if (section == null) continue;
+
+                ItemContainer container = section.getInventory();
+                if (container == null) continue;
+                short capacity = container.getCapacity();
+                if (capacity <= 0) continue;
+                for (short i = 0; i < capacity; i++) {
+                    try {
+                        container.setItemStackForSlot(i, ItemStack.EMPTY, false);
+                    } catch (Exception ignored) {}
+                }
                 try {
-                    container.setItemStackForSlot(i, ItemStack.EMPTY, false);
+                    section.markDirty();
                 } catch (Exception ignored) {}
             }
-            section.markDirty();
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable ignored) {
         }
     }
 

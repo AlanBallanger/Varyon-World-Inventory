@@ -1,20 +1,7 @@
-# Varyon-World-Inventory — Configuration des groupes de mondes
-#
-# Les mondes d'un même groupe partagent le même inventaire.
-# Le premier monde de chaque groupe sert de clé de sauvegarde (détail interne).
-#
-# Format :
-# groups:
-#   nom-du-groupe:
-#     - monde_1
-#     - monde_2
-#
-# Exemple :
-# groups:
-#   survie:
-#     - Overworld
-#     - Nether
-#     - End
+# Chaque clé sous groups est le nom de catégorie : inventaire dans <data>/<uuid>/<nom>.json
+# Liste les noms de mondes Hytale qui partagent ce fichier (comparaison insensible à la casse).
+# Mondes absents de la config → groupe "default" → default.json
+# Mettre TOUS les noms internes utilisés par le serveur (ex. varyon hub + VaryonS1) dans le même groupe.
 
 groups:
   adventurers:
